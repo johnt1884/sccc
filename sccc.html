@@ -1863,29 +1863,27 @@
             dirList.style.overflowY = 'auto';
             
             const excludedNames = new Set(['edit', 'edit thumbnails', 'landscape', 'landscape rotate', 'thumbnails', 'sc']);
-            const activePaths = new Set();
-            for (const canvas of canvases.values()) {
-                if (canvas.path !== undefined) {
-                    activePaths.add(canvas.path.replace(/\//g, '\\').toLowerCase());
-                }
-            }
 
-            allProjectFolders.filter(folder => {
-                if (!folder.isProject) return false;
-                if (excludedNames.has(folder.name.toLowerCase())) return false;
-                if (activePaths.size > 0 && !activePaths.has((folder.path || "").replace(/\//g, '\\').toLowerCase())) return false;
-                return true;
-            }).forEach(folder => {
+            // Source of truth for active projects
+            const activeCanvases = Array.from(canvases.values());
+
+            activeCanvases.forEach(canvas => {
+                const canvasPath = (canvas.path || "").replace(/\//g, '\\').toLowerCase();
+                const canvasName = canvas.name || "(Root)";
+
+                // Skip if it's an excluded directory (unlikely for a canvas, but safe)
+                if (excludedNames.has(canvasName.toLowerCase())) return;
+
                 const li = document.createElement('li');
                 const videoCount = allVideoFiles.filter(f => {
                     const fPath = (f.projectPath || "").replace(/\//g, '\\').toLowerCase();
-                    const pPath = (folder.path || "").replace(/\//g, '\\').toLowerCase();
-                    return fPath === pPath;
+                    return fPath === canvasPath;
                 }).length;
+
                 if (videoCount === 0) {
                     li.style.color = '#888';
                 }
-                li.textContent = `${folder.path || folder.name || '(Root)'}: ${videoCount} videos`;
+                li.textContent = `${canvas.path || canvasName}: ${videoCount} videos`;
                 dirList.appendChild(li);
             });
             perDirContainer.appendChild(dirList);
@@ -5285,12 +5283,9 @@
                         const relativePathParts = await g_rootHandle.resolve(folder.handle);
                         if (relativePathParts) {
                             folder.path = relativePathParts.join('\\');
-                        } else {
-                            folder.path = "";
                         }
                     } catch (e) {
                         console.warn(`Could not resolve path for ${folder.name} relative to root.`);
-                        folder.path = "";
                     }
                 }
             }
@@ -5337,12 +5332,8 @@
                             const relativePathParts = await g_rootHandle.resolve(folder.handle);
                             if (relativePathParts) {
                                 folder.path = relativePathParts.join('\\');
-                            } else {
-                                folder.path = "";
                             }
-                        } catch (e) {
-                            folder.path = "";
-                        }
+                        } catch (e) {}
                     }
                 }
 
@@ -6025,12 +6016,8 @@
                             const relativePathParts = await g_rootHandle.resolve(folder.handle);
                             if (relativePathParts) {
                                 folder.path = relativePathParts.join('\\');
-                            } else {
-                                folder.path = "";
                             }
-                        } catch (e) {
-                            folder.path = "";
-                        }
+                        } catch (e) {}
                     }
                 }
 
