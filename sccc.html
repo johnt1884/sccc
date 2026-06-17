@@ -1863,9 +1863,17 @@
             dirList.style.overflowY = 'auto';
             
             const excludedNames = new Set(['edit', 'edit thumbnails', 'landscape', 'landscape rotate', 'thumbnails', 'sc']);
+            const activePaths = new Set();
+            for (const canvas of canvases.values()) {
+                if (canvas.path !== undefined) {
+                    activePaths.add(canvas.path.replace(/\//g, '\\').toLowerCase());
+                }
+            }
+
             allProjectFolders.filter(folder => {
                 if (!folder.isProject) return false;
                 if (excludedNames.has(folder.name.toLowerCase())) return false;
+                if (activePaths.size > 0 && !activePaths.has((folder.path || "").replace(/\//g, '\\').toLowerCase())) return false;
                 return true;
             }).forEach(folder => {
                 const li = document.createElement('li');
@@ -3440,9 +3448,15 @@
                 leftGroup.appendChild(createBtn('Rotate Left', () => rotate(-90)));
                 leftGroup.appendChild(createBtn('Rotate Right', () => rotate(90)));
             }
-            leftGroup.appendChild(createBtn('Both', () => setType('both-sc'), 'both-sc', '--both-sc-color'));
-            leftGroup.appendChild(createBtn('Subfolder', () => setType('subfolder-sc'), 'subfolder-sc', '--subfolder-sc-color'));
-            leftGroup.appendChild(createBtn('Root', () => setType('root-sc'), 'root-sc', '--root-sc-color'));
+            const isPlaylistRootMode = (currentMode === 'playlist-root' || currentMode === 'update-playlist-root');
+
+            if (!isPlaylistRootMode) {
+                leftGroup.appendChild(createBtn('Both', () => setType('both-sc'), 'both-sc', '--both-sc-color'));
+                leftGroup.appendChild(createBtn('Subfolder', () => setType('subfolder-sc'), 'subfolder-sc', '--subfolder-sc-color'));
+                leftGroup.appendChild(createBtn('Root', () => setType('root-sc'), 'root-sc', '--root-sc-color'));
+            } else {
+                leftGroup.appendChild(createBtn('Select', () => setType('playlist-sc'), 'playlist-sc', '--playlist-sc-color'));
+            }
             
             if (isPlaylistMode) {
                 const multiContainer = document.createElement('div');
