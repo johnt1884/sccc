@@ -4538,11 +4538,11 @@
 
                     if (rootChanged || subChanged || isMoved) {
                         scriptLines.push(`    # Managing shortcuts for: ${sel.projectPath}\\${sel.videoName} (Selection: ${selectionType})`);
-                        scriptLines.push(`    \$targetPath = [System.IO.Path]::GetFullPath(${targetPathConstruction})`);
+                        scriptLines.push(`    \$targetPath = [System.IO.Path]::GetFullPath((${targetPathConstruction}))`);
 
                         if (isMoved) {
                             const sourceBaseRes = getPSPathRes('\$BaseDir', sel.projectPath, sel.projectName, sel.subfolder);
-                            scriptLines.push(`    \$oldTargetPath = [System.IO.Path]::GetFullPath(Join-Path -Path (${sourceBaseRes}) -ChildPath '${escapedVideoName}')`);
+                            scriptLines.push(`    \$oldTargetPath = [System.IO.Path]::GetFullPath((Join-Path -Path (${sourceBaseRes}) -ChildPath '${escapedVideoName}'))`);
                         } else {
                             scriptLines.push(`    \$oldTargetPath = ""`);
                         }
@@ -4647,7 +4647,7 @@
                 const escapedVideoName = escapePSString(videoName);
                 
                 const sourceBaseRes = getPSPathRes('\$BaseDir', projectPath, initial.projectName, initial.subfolder);
-                let currentTargetPath = `[System.IO.Path]::GetFullPath(Join-Path -Path (${sourceBaseRes}) -ChildPath '${escapedVideoName}')`;
+                let currentTargetPath = `[System.IO.Path]::GetFullPath((Join-Path -Path (${sourceBaseRes}) -ChildPath '${escapedVideoName}'))`;
 
                 const initiallyInSubfolder = initial.type === 'subfolder-sc' || initial.type === 'both-sc';
                 if (initiallyInSubfolder) {
@@ -6460,7 +6460,7 @@
                     if (sel.projectPath) {
                         projectPathVar = `Join-Path -Path \"$BaseDir\" -ChildPath '${escapedProjectPath}'`;
                     }
-                    scriptLines.push(`\$subfolderSelections['' + [System.IO.Path]::GetFullPath((${projectPathVar}))] = ${multiplier}`);
+                    scriptLines.push(`\$subfolderSelections['' + [System.IO.Path]::GetFullPath(((${projectPathVar})))] = ${multiplier}`);
                 });
 
                 scriptLines.push('foreach ($projPath in \$subfolderSelections.Keys) {');
