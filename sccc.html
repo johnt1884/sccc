@@ -632,27 +632,6 @@
             margin-right: 8px;
             display: inline-block;
         }
-        .playlist-nav-btn {
-            background-color: rgba(0, 0, 0, 0.5);
-            color: white;
-            border: none;
-            cursor: pointer;
-            padding: 4px 10px;
-            font-size: 18px;
-            border-radius: 4px;
-            margin: 0 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .playlist-nav-btn:hover {
-            background-color: rgba(0, 0, 0, 0.8);
-        }
-        .playlist-nav-container {
-            display: flex;
-            align-items: center;
-            margin-bottom: 10px;
-        }
         .multiplier-input {
             width: 50px;
             height: 30px;
@@ -1883,9 +1862,18 @@
             dirList.style.maxHeight = '200px';
             dirList.style.overflowY = 'auto';
             
-            allProjectFolders.forEach(folder => {
+            const excludedNames = new Set(['edit', 'edit thumbnails', 'landscape', 'landscape rotate', 'thumbnails', 'sc']);
+            allProjectFolders.filter(folder => {
+                if (!folder.isProject) return false;
+                if (excludedNames.has(folder.name.toLowerCase())) return false;
+                return true;
+            }).forEach(folder => {
                 const li = document.createElement('li');
-                const videoCount = allVideoFiles.filter(f => f.projectPath === folder.path).length;
+                const videoCount = allVideoFiles.filter(f => {
+                    const fPath = (f.projectPath || "").replace(/\//g, '\\').toLowerCase();
+                    const pPath = (folder.path || "").replace(/\//g, '\\').toLowerCase();
+                    return fPath === pPath;
+                }).length;
                 if (videoCount === 0) {
                     li.style.color = '#888';
                 }
@@ -3351,6 +3339,11 @@
                 moveSelector.value = target;
                 moveSelector.classList.toggle("active", !!target);
             }
+
+            const multiInput = rowDiv.querySelector('.multiplier-input');
+            if (multiInput && selection) {
+                multiInput.value = selection.multiplier || 1;
+            }
             debouncedLayout();
         }
         function createRowActionBar(videoName, projectPath, subfolder, rowDiv, projectName) {
@@ -3451,6 +3444,54 @@
             leftGroup.appendChild(createBtn('Subfolder', () => setType('subfolder-sc'), 'subfolder-sc', '--subfolder-sc-color'));
             leftGroup.appendChild(createBtn('Root', () => setType('root-sc'), 'root-sc', '--root-sc-color'));
             
+            if (isPlaylistMode) {
+                const multiContainer = document.createElement('div');
+                multiContainer.className = 'multiplier-container';
+                multiContainer.style.display = 'flex';
+                multiContainer.style.alignItems = 'center';
+                multiContainer.style.marginLeft = '10px';
+                multiContainer.style.gap = '4px';
+
+                const decBtn = document.createElement('button');
+                decBtn.className = 'bar-button row-bar-btn';
+                decBtn.textContent = '◀';
+                decBtn.style.padding = '2px 6px';
+
+                const multiInput = document.createElement('input');
+                multiInput.type = 'number';
+                multiInput.className = 'multiplier-input';
+                multiInput.value = 1;
+                multiInput.min = 1;
+                multiInput.style.margin = '0';
+                multiInput.style.width = '40px';
+                multiInput.style.height = '28px';
+
+                const incBtn = document.createElement('button');
+                incBtn.className = 'bar-button row-bar-btn';
+                incBtn.textContent = '▶';
+                incBtn.style.padding = '2px 6px';
+
+                const updateMultiplier = (val) => {
+                    let selection = shortcutSelections.get(key);
+                    if (!selection) {
+                        selection = { videoName, projectPath, subfolder, projectName, type: '', rotation: "0", flipped: false };
+                        shortcutSelections.set(key, selection);
+                    }
+                    selection.multiplier = Math.max(1, parseInt(val) || 1);
+                    multiInput.value = selection.multiplier;
+                };
+
+                decBtn.onclick = (e) => { e.stopPropagation(); updateMultiplier(parseInt(multiInput.value) - 1); };
+                incBtn.onclick = (e) => { e.stopPropagation(); updateMultiplier(parseInt(multiInput.value) + 1); };
+                multiInput.onchange = (e) => updateMultiplier(e.target.value);
+                multiInput.onclick = (e) => e.stopPropagation();
+
+                multiContainer.appendChild(decBtn);
+                multiContainer.appendChild(multiInput);
+                multiContainer.appendChild(incBtn);
+                leftGroup.appendChild(multiContainer);
+            }
+
             if (!isPlaylistMode) {
                 leftGroup.appendChild(createBtn('Rotate 180°', () => rotate(180)));
             }
@@ -5508,25 +5549,6 @@
                         dateInfo.textContent = `Created: ${new Date(videoFile.lastModified).toLocaleString()}`;
                         rowDiv.appendChild(dateInfo);
 
-                        let multiplierInput;
-                        if (currentMode === 'playlist-root' || currentMode === 'update-playlist-root') {
-                            const navContainer = document.createElement('div');
-                            navContainer.className = 'playlist-nav-container';
-                            rowDiv.appendChild(navContainer);
-                            multiplierInput = document.createElement('input');
-                            multiplierInput.type = 'number';
-                            multiplierInput.className = 'multiplier-input';
-                            multiplierInput.value = 1;
-                            multiplierInput.min = 1;
-                            multiplierInput.title = 'Add to playlist multiple times';
-                            navContainer.appendChild(multiplierInput);
-                            multiplierInput.addEventListener('change', () => {
-                                const key = project.path + '|' + videoFile.name;
-                                const existingSelection = shortcutSelections.get(key);
-                                if (existingSelection) existingSelection.multiplier = parseInt(multiplierInput.value) || 1;
-                            });
-                            multiplierInput.addEventListener('click', (e) => e.stopPropagation());
-                        }
 
                         const thumbnailsContainer = document.createElement('div');
                         thumbnailsContainer.className = 'thumbnails-container';
@@ -6103,31 +6125,6 @@
 
                     rowDiv.appendChild(createRowActionBar('Playlist Item', project.path, candidateVideos[currentIndex].subfolder, rowDiv, project.name));
 
-                    const navContainer = document.createElement('div');
-                    navContainer.className = 'playlist-nav-container';
-                    rowDiv.appendChild(navContainer);
-
-                    const prevBtn = document.createElement('button');
-                    prevBtn.className = 'playlist-nav-btn';
-                    prevBtn.textContent = '◀';
-                    navContainer.appendChild(prevBtn);
-
-                    const nextBtn = document.createElement('button');
-                    nextBtn.className = 'playlist-nav-btn';
-                    nextBtn.textContent = '▶';
-                    navContainer.appendChild(nextBtn);
-
-                    const multiplierInput = document.createElement('input');
-                    multiplierInput.type = 'number';
-                    multiplierInput.className = 'multiplier-input';
-                    multiplierInput.value = 1;
-                    multiplierInput.min = 1;
-                    multiplierInput.title = 'Add to playlist multiple times';
-                    navContainer.appendChild(multiplierInput);
-
-                    if (candidateVideos.length <= 1) {
-                        navContainer.style.display = 'none';
-                    }
 
                     const dateInfo = document.createElement('div');
                     dateInfo.className = 'date-info';
@@ -6216,32 +6213,32 @@
 
                     await updateDisplayedVideo(currentIndex);
 
-                    prevBtn.onclick = (e) => {
-                        e.stopPropagation();
-                        currentIndex = (currentIndex - 1 + candidateVideos.length) % candidateVideos.length;
-                        updateDisplayedVideo(currentIndex);
-                    };
+                    const actionBar = rowDiv.querySelector('.row-action-bar');
+                    if (actionBar) {
+                        const prevBtn = actionBar.querySelectorAll('.multiplier-container button')[0];
+                        const nextBtn = actionBar.querySelectorAll('.multiplier-container button')[1];
 
-                    nextBtn.onclick = (e) => {
-                        e.stopPropagation();
-                        currentIndex = (currentIndex + 1) % candidateVideos.length;
-                        updateDisplayedVideo(currentIndex);
-                    };
+                        if (prevBtn && nextBtn) {
+                            prevBtn.onclick = (e) => {
+                                e.stopPropagation();
+                                currentIndex = (currentIndex - 1 + candidateVideos.length) % candidateVideos.length;
+                                updateDisplayedVideo(currentIndex);
+                            };
 
+                            nextBtn.onclick = (e) => {
+                                e.stopPropagation();
+                                currentIndex = (currentIndex + 1) % candidateVideos.length;
+                                updateDisplayedVideo(currentIndex);
+                            };
+
+                            if (candidateVideos.length <= 1) {
+                                prevBtn.style.display = 'none';
+                                nextBtn.style.display = 'none';
+                            }
+                        }
+                    }
 
                     updateRowUI(rowDiv, 'Playlist Item', project.path);
-
-                    multiplierInput.addEventListener('change', () => {
-                        const key = project.path + '|Playlist Item';
-                        const existingSelection = shortcutSelections.get(key);
-                        if (existingSelection) {
-                            existingSelection.multiplier = parseInt(multiplierInput.value) || 1;
-                        }
-                    });
-
-                    multiplierInput.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                    });
 
                 } catch (e) {
                     console.warn(`Could not process project '${project.name}' for playlist mode:`, e);
