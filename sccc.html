@@ -5540,6 +5540,38 @@
                     groupHeaderText.textContent = `${projectPrefix}${project.name} (${projectRows.length} ${projectRows.length === 1 ? 'video' : 'videos'})`;
                     groupHeader.appendChild(groupHeaderText);
 
+                    if (currentMode === 'playlist-root' || currentMode === 'update-playlist-root') {
+                        const selectAllBtn = document.createElement('button');
+                        selectAllBtn.className = 'bar-button';
+                        selectAllBtn.style.marginLeft = '16px';
+                        selectAllBtn.style.fontSize = '12px';
+                        selectAllBtn.textContent = 'Select All';
+
+                        let allSelected = false;
+                        selectAllBtn.onclick = () => {
+                            allSelected = !allSelected;
+                            selectAllBtn.textContent = allSelected ? 'Deselect All' : 'Select All';
+
+                            projectRows.forEach(rowData => {
+                                const key = project.path + '|' + rowData.videoFile.name;
+                                let selection = shortcutSelections.get(key);
+                                if (!selection) {
+                                    selection = {
+                                        videoName: rowData.videoFile.name,
+                                        projectPath: project.path,
+                                        subfolder: rowData.videoFile.subfolder,
+                                        projectName: project.name,
+                                        type: '', rotation: "0", flipped: false
+                                    };
+                                    shortcutSelections.set(key, selection);
+                                }
+                                selection.type = allSelected ? 'playlist-sc' : '';
+                                updateRowUI(rowData.rowDiv, rowData.videoFile.name, project.path);
+                            });
+                        };
+                        groupHeader.appendChild(selectAllBtn);
+                    }
+
                     if (isNewOnly) {
                         const headerDateInfo = document.createElement('span');
                         headerDateInfo.className = 'date-info';
