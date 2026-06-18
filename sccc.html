@@ -1459,7 +1459,9 @@
             return Math.round(time * editorEstimatedFPS);
         }
         function editorFrameToTime(frame) {
-            return frame / editorEstimatedFPS;
+            let t = frame / editorEstimatedFPS;
+            if (t >= editorMainVideo.duration) t = editorMainVideo.duration - 0.001;
+            return Math.max(0, t);
         }
         function editorFmtTime(s) {
             if (!isFinite(s)) s = 0;
@@ -1546,7 +1548,9 @@
                 mark.style.left = x + 'px';
                 mark.onclick = (e) => {
                     e.stopPropagation();
-                    editorMainVideo.currentTime = t;
+                    let nt = m.time;
+                    if (nt >= editorMainVideo.duration) nt = editorMainVideo.duration - 0.001;
+                    editorMainVideo.currentTime = Math.max(0, nt);
                 };
                 editorTimeline.appendChild(mark);
 
@@ -1661,8 +1665,10 @@
             const r = editorTimeline.getBoundingClientRect();
             let p = (clientX - r.left) / r.width;
             p = Math.max(0, Math.min(1, p));
-            const newTime = p * editorMainVideo.duration;
-            editorMainVideo.currentTime = newTime;
+            let newTime = p * editorMainVideo.duration;
+            // Cap to slightly below duration to avoid entering 'ended' state
+            if (newTime >= editorMainVideo.duration) newTime = editorMainVideo.duration - 0.001;
+            editorMainVideo.currentTime = Math.max(0, newTime);
             editorProgress.style.width = (p * 100) + '%';
             editorScrubber.style.left = (p * 100) + '%';
         }
@@ -2327,16 +2333,22 @@
                 }
             };
 
-            editorFrameBackBtn.onclick = () => editorMainVideo.currentTime -= editorFrameOffset;
-            editorFrameForwardBtn.onclick = () => editorMainVideo.currentTime += editorFrameOffset;
+            const stepTime = (delta) => {
+                let nt = editorMainVideo.currentTime + delta;
+                if (nt >= editorMainVideo.duration) nt = editorMainVideo.duration - 0.001;
+                editorMainVideo.currentTime = Math.max(0, nt);
+            };
+
+            editorFrameBackBtn.onclick = () => stepTime(-editorFrameOffset);
+            editorFrameForwardBtn.onclick = () => stepTime(editorFrameOffset);
 
             editorModal.addEventListener('wheel', (e) => {
                 if (editorModal.style.display === 'flex') {
                     e.preventDefault();
                     if (e.deltaY < 0) {
-                        editorMainVideo.currentTime -= editorFrameOffset;
+                        stepTime(-editorFrameOffset);
                     } else {
-                        editorMainVideo.currentTime += editorFrameOffset;
+                        stepTime(editorFrameOffset);
                     }
                 }
             }, { passive: false });
