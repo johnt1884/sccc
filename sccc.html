@@ -632,27 +632,6 @@
             margin-right: 8px;
             display: inline-block;
         }
-        .playlist-nav-btn {
-            background-color: rgba(0, 0, 0, 0.5);
-            color: white;
-            border: none;
-            cursor: pointer;
-            padding: 4px 10px;
-            font-size: 18px;
-            border-radius: 4px;
-            margin: 0 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .playlist-nav-btn:hover {
-            background-color: rgba(0, 0, 0, 0.8);
-        }
-        .playlist-nav-container {
-            display: flex;
-            align-items: center;
-            margin-bottom: 10px;
-        }
         .multiplier-input {
             width: 50px;
             height: 30px;
@@ -1480,7 +1459,9 @@
             return Math.round(time * editorEstimatedFPS);
         }
         function editorFrameToTime(frame) {
-            return frame / editorEstimatedFPS;
+            let t = frame / editorEstimatedFPS;
+            if (t >= editorMainVideo.duration) t = editorMainVideo.duration - 0.001;
+            return Math.max(0, t);
         }
         function editorFmtTime(s) {
             if (!isFinite(s)) s = 0;
@@ -1567,7 +1548,9 @@
                 mark.style.left = x + 'px';
                 mark.onclick = (e) => {
                     e.stopPropagation();
-                    editorMainVideo.currentTime = t;
+                    let nt = m.time;
+                    if (nt >= editorMainVideo.duration) nt = editorMainVideo.duration - 0.001;
+                    editorMainVideo.currentTime = Math.max(0, nt);
                 };
                 editorTimeline.appendChild(mark);
 
@@ -1682,8 +1665,10 @@
             const r = editorTimeline.getBoundingClientRect();
             let p = (clientX - r.left) / r.width;
             p = Math.max(0, Math.min(1, p));
-            const newTime = p * editorMainVideo.duration;
-            editorMainVideo.currentTime = newTime;
+            let newTime = p * editorMainVideo.duration;
+            // Cap to slightly below duration to avoid entering 'ended' state
+            if (newTime >= editorMainVideo.duration) newTime = editorMainVideo.duration - 0.001;
+            editorMainVideo.currentTime = Math.max(0, newTime);
             editorProgress.style.width = (p * 100) + '%';
             editorScrubber.style.left = (p * 100) + '%';
         }
@@ -1883,13 +1868,28 @@
             dirList.style.maxHeight = '200px';
             dirList.style.overflowY = 'auto';
             
-            allProjectFolders.forEach(folder => {
+            const excludedNames = new Set(['edit', 'edit thumbnails', 'landscape', 'landscape rotate', 'thumbnails', 'sc']);
+
+            // Source of truth for active projects
+            const activeCanvases = Array.from(canvases.values());
+
+            activeCanvases.forEach(canvas => {
+                const canvasPath = (canvas.path || "").replace(/\//g, '\\').toLowerCase();
+                const canvasName = canvas.name || "(Root)";
+
+                // Skip if it's an excluded directory (unlikely for a canvas, but safe)
+                if (excludedNames.has(canvasName.toLowerCase())) return;
+
                 const li = document.createElement('li');
-                const videoCount = allVideoFiles.filter(f => f.projectPath === folder.path).length;
+                const videoCount = allVideoFiles.filter(f => {
+                    const fPath = (f.projectPath || "").replace(/\//g, '\\').toLowerCase();
+                    return fPath === canvasPath;
+                }).length;
+
                 if (videoCount === 0) {
                     li.style.color = '#888';
                 }
-                li.textContent = `${folder.path || folder.name || '(Root)'}: ${videoCount} videos`;
+                li.textContent = `${canvas.path || canvasName}: ${videoCount} videos`;
                 dirList.appendChild(li);
             });
             perDirContainer.appendChild(dirList);
@@ -2333,16 +2333,22 @@
                 }
             };
 
-            editorFrameBackBtn.onclick = () => editorMainVideo.currentTime -= editorFrameOffset;
-            editorFrameForwardBtn.onclick = () => editorMainVideo.currentTime += editorFrameOffset;
+            const stepTime = (delta) => {
+                let nt = editorMainVideo.currentTime + delta;
+                if (nt >= editorMainVideo.duration) nt = editorMainVideo.duration - 0.001;
+                editorMainVideo.currentTime = Math.max(0, nt);
+            };
+
+            editorFrameBackBtn.onclick = () => stepTime(-editorFrameOffset);
+            editorFrameForwardBtn.onclick = () => stepTime(editorFrameOffset);
 
             editorModal.addEventListener('wheel', (e) => {
                 if (editorModal.style.display === 'flex') {
                     e.preventDefault();
                     if (e.deltaY < 0) {
-                        editorMainVideo.currentTime -= editorFrameOffset;
+                        stepTime(-editorFrameOffset);
                     } else {
-                        editorMainVideo.currentTime += editorFrameOffset;
+                        stepTime(editorFrameOffset);
                     }
                 }
             }, { passive: false });
@@ -3351,6 +3357,11 @@
                 moveSelector.value = target;
                 moveSelector.classList.toggle("active", !!target);
             }
+
+            const multiInput = rowDiv.querySelector('.multiplier-input');
+            if (multiInput && selection) {
+                multiInput.value = selection.multiplier || 1;
+            }
             debouncedLayout();
         }
         function createRowActionBar(videoName, projectPath, subfolder, rowDiv, projectName) {
@@ -3447,10 +3458,64 @@
                 leftGroup.appendChild(createBtn('Rotate Left', () => rotate(-90)));
                 leftGroup.appendChild(createBtn('Rotate Right', () => rotate(90)));
             }
-            leftGroup.appendChild(createBtn('Both', () => setType('both-sc'), 'both-sc', '--both-sc-color'));
-            leftGroup.appendChild(createBtn('Subfolder', () => setType('subfolder-sc'), 'subfolder-sc', '--subfolder-sc-color'));
-            leftGroup.appendChild(createBtn('Root', () => setType('root-sc'), 'root-sc', '--root-sc-color'));
+            const isPlaylistRootMode = (currentMode === 'playlist-root' || currentMode === 'update-playlist-root');
+
+            if (!isPlaylistRootMode) {
+                leftGroup.appendChild(createBtn('Both', () => setType('both-sc'), 'both-sc', '--both-sc-color'));
+                leftGroup.appendChild(createBtn('Subfolder', () => setType('subfolder-sc'), 'subfolder-sc', '--subfolder-sc-color'));
+                leftGroup.appendChild(createBtn('Root', () => setType('root-sc'), 'root-sc', '--root-sc-color'));
+            } else {
+                leftGroup.appendChild(createBtn('Select', () => setType('playlist-sc'), 'playlist-sc', '--playlist-sc-color'));
+            }
             
+            if (isPlaylistMode) {
+                const multiContainer = document.createElement('div');
+                multiContainer.className = 'multiplier-container';
+                multiContainer.style.display = 'flex';
+                multiContainer.style.alignItems = 'center';
+                multiContainer.style.marginLeft = '10px';
+                multiContainer.style.gap = '4px';
+
+                const decBtn = document.createElement('button');
+                decBtn.className = 'bar-button row-bar-btn';
+                decBtn.textContent = '◀';
+                decBtn.style.padding = '2px 6px';
+
+                const multiInput = document.createElement('input');
+                multiInput.type = 'number';
+                multiInput.className = 'multiplier-input';
+                multiInput.value = 1;
+                multiInput.min = 1;
+                multiInput.style.margin = '0';
+                multiInput.style.width = '40px';
+                multiInput.style.height = '28px';
+
+                const incBtn = document.createElement('button');
+                incBtn.className = 'bar-button row-bar-btn';
+                incBtn.textContent = '▶';
+                incBtn.style.padding = '2px 6px';
+
+                const updateMultiplier = (val) => {
+                    let selection = shortcutSelections.get(key);
+                    if (!selection) {
+                        selection = { videoName, projectPath, subfolder, projectName, type: '', rotation: "0", flipped: false };
+                        shortcutSelections.set(key, selection);
+                    }
+                    selection.multiplier = Math.max(1, parseInt(val) || 1);
+                    multiInput.value = selection.multiplier;
+                };
+
+                decBtn.onclick = (e) => { e.stopPropagation(); updateMultiplier(parseInt(multiInput.value) - 1); };
+                incBtn.onclick = (e) => { e.stopPropagation(); updateMultiplier(parseInt(multiInput.value) + 1); };
+                multiInput.onchange = (e) => updateMultiplier(e.target.value);
+                multiInput.onclick = (e) => e.stopPropagation();
+
+                multiContainer.appendChild(decBtn);
+                multiContainer.appendChild(multiInput);
+                multiContainer.appendChild(incBtn);
+                leftGroup.appendChild(multiContainer);
+            }
+
             if (!isPlaylistMode) {
                 leftGroup.appendChild(createBtn('Rotate 180°', () => rotate(180)));
             }
@@ -3956,7 +4021,7 @@
                 'if (\$PSScriptRoot) { \$BaseDir = \$PSScriptRoot }',
                 'else { \$BaseDir = Split-Path -Parent -Path \$MyInvocation.MyCommand.Definition -ErrorAction SilentlyContinue }',
                 'if (-not \$BaseDir) { \$BaseDir = Get-Location }',
-                '\$BaseDir = [System.IO.Path]::GetFullPath(\$BaseDir)',
+                '\$BaseDir = [System.IO.Path]::GetFullPath((\$BaseDir))',
                 '\$wshell = New-Object -ComObject WScript.Shell',
                 '\$newShortcuts = @()',
                 '# Robust Root detection',
@@ -3992,7 +4057,7 @@
                 '        }',
                 '    }',
                 '    if (\$sub -and \$sub -ne "undefined") { \$p = (Join-Path -Path \$p -ChildPath \$sub) }',
-                '    \$final = [System.IO.Path]::GetFullPath(\$p)',
+                '    \$final = [System.IO.Path]::GetFullPath((\$p))',
                 '    return \$final',
                 '}',
                 '',
@@ -4191,8 +4256,8 @@
                 '        if ($shouldExist) { [System.IO.Directory]::CreateDirectory(\$folderPath) | Out-Null }',
                 '        else { return }',
                 '    }',
-                '    \$absTarget = if (\$targetPath) { [System.IO.Path]::GetFullPath(\$targetPath).TrimEnd(\"\\\") } else { \"\" }',
-                '    \$absOldTarget = if (\$oldTargetPath) { [System.IO.Path]::GetFullPath(\$oldTargetPath).TrimEnd(\"\\\") } else { \"\" }',
+                '    \$absTarget = if (\$targetPath -and \$targetPath.Trim()) { try { [System.IO.Path]::GetFullPath(\$targetPath.Trim()).TrimEnd(\"\\\") } catch { \$targetPath } } else { \"\" }',
+                '    \$absOldTarget = if (\$oldTargetPath -and \$oldTargetPath.Trim()) { try { [System.IO.Path]::GetFullPath(\$oldTargetPath.Trim()).TrimEnd(\"\\\") } catch { \$oldTargetPath } } else { \"\" }',
                 '    \$baseName = [System.IO.Path]::GetFileNameWithoutExtension(\$videoName)',
                 '    # Precise regex to match: video.mp4.lnk, video.lnk, video - Shortcut.lnk, video.mp4 - Shortcut.lnk',
                 '    $pattern = "^" + [regex]::Escape($baseName) + "(\\.[^.]+)?(\\s-\\sShortcut)?\\.(lnk|ink)$"',
@@ -4202,7 +4267,7 @@
                 '        foreach (\$file in \$existing) {',
                 '            try {',
                 '                \$sc = \$wshell.CreateShortcut(\$file.FullName)',
-                '                \$scTarget = [System.IO.Path]::GetFullPath(\$sc.TargetPath).TrimEnd(\"\\\")',
+                '                \$scTarget = if (\$sc.TargetPath) { try { [System.IO.Path]::GetFullPath(\$sc.TargetPath).TrimEnd(\"\\\") } catch { \$sc.TargetPath } } else { \"\" }',
                 '                if ((\$absTarget -and \$scTarget -eq \$absTarget) -or (\$absOldTarget -and \$scTarget -eq \$absOldTarget)) {',
                 '                    Write-Host "Recycling obsolete shortcut: \$(\$file.Name)" -ForegroundColor Yellow',
                 '                    Send-ToRecycleBin -path \$file.FullName',
@@ -4217,7 +4282,7 @@
                 '    foreach (\$file in \$existing) {',
                 '        try {',
                 '            \$sc = \$wshell.CreateShortcut(\$file.FullName)',
-                '            \$scTarget = [System.IO.Path]::GetFullPath(\$sc.TargetPath).TrimEnd(\"\\\")',
+                '            \$scTarget = if (\$sc.TargetPath) { try { [System.IO.Path]::GetFullPath(\$sc.TargetPath).TrimEnd(\"\\\") } catch { \$sc.TargetPath } } else { \"\" }',
                 '            if (\$absTarget -and \$scTarget -eq \$absTarget) {',
                 '                if (-not \$foundCorrect) {',
                 '                    if (\$file.FullName -ne $primaryPath) {',
@@ -4497,11 +4562,11 @@
 
                     if (rootChanged || subChanged || isMoved) {
                         scriptLines.push(`    # Managing shortcuts for: ${sel.projectPath}\\${sel.videoName} (Selection: ${selectionType})`);
-                        scriptLines.push(`    \$targetPath = [System.IO.Path]::GetFullPath(${targetPathConstruction})`);
+                        scriptLines.push(`    \$targetPath = [System.IO.Path]::GetFullPath((${targetPathConstruction}))`);
 
                         if (isMoved) {
                             const sourceBaseRes = getPSPathRes('\$BaseDir', sel.projectPath, sel.projectName, sel.subfolder);
-                            scriptLines.push(`    \$oldTargetPath = [System.IO.Path]::GetFullPath(Join-Path -Path (${sourceBaseRes}) -ChildPath '${escapedVideoName}')`);
+                            scriptLines.push(`    \$oldTargetPath = [System.IO.Path]::GetFullPath((Join-Path -Path (${sourceBaseRes}) -ChildPath '${escapedVideoName}'))`);
                         } else {
                             scriptLines.push(`    \$oldTargetPath = ""`);
                         }
@@ -4514,7 +4579,7 @@
                             } else if (initiallyInRoot) {
                                 summaryActions.shortcuts_delete.push(`${sel.videoName} from Root sc/`);
                             }
-                            scriptLines.push(`    Manage-Shortcut -folderPath \$rootScFolder -videoName '${escapedVideoName}' -targetPath \$targetPath -oldTargetPath \$oldTargetPath -shouldExist ${wantRoot ? '$true' : '$false'}`);
+                            scriptLines.push(`    Manage-Shortcut -folderPath \$rootScFolder -videoName '${escapedVideoName}' -targetPath (\$targetPath) -oldTargetPath (\$oldTargetPath) -shouldExist ${wantRoot ? '$true' : '$false'}`);
                         }
 
                         // Subfolder location
@@ -4529,7 +4594,7 @@
                             const scNameToUse = isMoved ? sel.targetProject : sel.projectName;
                             const scProjRes = getPSPathRes('\$BaseDir', scProjToUse, scNameToUse, '');
                             let scDirPath = `Join-Path -Path (${scProjRes}) -ChildPath 'sc'`;
-                            scriptLines.push(`    Manage-Shortcut -folderPath (${scDirPath}) -videoName '${escapedVideoName}' -targetPath \$targetPath -oldTargetPath \$oldTargetPath -shouldExist ${wantSub ? '$true' : '$false'}`);
+                            scriptLines.push(`    Manage-Shortcut -folderPath (${scDirPath}) -videoName '${escapedVideoName}' -targetPath (\$targetPath) -oldTargetPath (\$oldTargetPath) -shouldExist ${wantSub ? '$true' : '$false'}`);
                         }
                         scriptLines.push('');
                     }
@@ -4606,20 +4671,20 @@
                 const escapedVideoName = escapePSString(videoName);
                 
                 const sourceBaseRes = getPSPathRes('\$BaseDir', projectPath, initial.projectName, initial.subfolder);
-                let currentTargetPath = `[System.IO.Path]::GetFullPath(Join-Path -Path (${sourceBaseRes}) -ChildPath '${escapedVideoName}')`;
+                let currentTargetPath = `[System.IO.Path]::GetFullPath((Join-Path -Path (${sourceBaseRes}) -ChildPath '${escapedVideoName}'))`;
 
                 const initiallyInSubfolder = initial.type === 'subfolder-sc' || initial.type === 'both-sc';
                 if (initiallyInSubfolder) {
                     summaryActions.shortcuts_delete.push(`${videoName} from ${initial.projectPath || '(Root)'}/sc/`);
                     const subPathRes = getPSPathRes('\$BaseDir', initial.projectPath, initial.projectName, '');
                     let subPath = `Join-Path -Path (${subPathRes}) -ChildPath 'sc'`;
-                    deletions.push(`Manage-Shortcut -folderPath (${subPath}) -videoName '${escapedVideoName}' -targetPath ${currentTargetPath} -oldTargetPath '' -shouldExist \$false`);
+                    deletions.push(`Manage-Shortcut -folderPath (${subPath}) -videoName '${escapedVideoName}' -targetPath (${currentTargetPath}) -oldTargetPath '' -shouldExist \$false`);
                 }
 
                 const initiallyInRoot = initial.type === 'root-sc' || initial.type === 'both-sc';
                 if (initiallyInRoot) {
                     summaryActions.shortcuts_delete.push(`${videoName} from Root sc/`);
-                    deletions.push(`Manage-Shortcut -folderPath \$rootScFolder -videoName '${escapedVideoName}' -targetPath ${currentTargetPath} -oldTargetPath '' -shouldExist \$false`);
+                    deletions.push(`Manage-Shortcut -folderPath \$rootScFolder -videoName '${escapedVideoName}' -targetPath (${currentTargetPath}) -oldTargetPath '' -shouldExist \$false`);
                 }
             });
 
@@ -5230,12 +5295,9 @@
                         const relativePathParts = await g_rootHandle.resolve(folder.handle);
                         if (relativePathParts) {
                             folder.path = relativePathParts.join('\\');
-                        } else {
-                            folder.path = "";
                         }
                     } catch (e) {
                         console.warn(`Could not resolve path for ${folder.name} relative to root.`);
-                        folder.path = "";
                     }
                 }
             }
@@ -5282,12 +5344,8 @@
                             const relativePathParts = await g_rootHandle.resolve(folder.handle);
                             if (relativePathParts) {
                                 folder.path = relativePathParts.join('\\');
-                            } else {
-                                folder.path = "";
                             }
-                        } catch (e) {
-                            folder.path = "";
-                        }
+                        } catch (e) {}
                     }
                 }
 
@@ -5482,6 +5540,38 @@
                     groupHeaderText.textContent = `${projectPrefix}${project.name} (${projectRows.length} ${projectRows.length === 1 ? 'video' : 'videos'})`;
                     groupHeader.appendChild(groupHeaderText);
 
+                    if (currentMode === 'playlist-root' || currentMode === 'update-playlist-root') {
+                        const selectAllBtn = document.createElement('button');
+                        selectAllBtn.className = 'bar-button';
+                        selectAllBtn.style.marginLeft = '16px';
+                        selectAllBtn.style.fontSize = '12px';
+                        selectAllBtn.textContent = 'Select All';
+
+                        let allSelected = false;
+                        selectAllBtn.onclick = () => {
+                            allSelected = !allSelected;
+                            selectAllBtn.textContent = allSelected ? 'Deselect All' : 'Select All';
+
+                            projectRows.forEach(rowData => {
+                                const key = project.path + '|' + rowData.videoFile.name;
+                                let selection = shortcutSelections.get(key);
+                                if (!selection) {
+                                    selection = {
+                                        videoName: rowData.videoFile.name,
+                                        projectPath: project.path,
+                                        subfolder: rowData.videoFile.subfolder,
+                                        projectName: project.name,
+                                        type: '', rotation: "0", flipped: false
+                                    };
+                                    shortcutSelections.set(key, selection);
+                                }
+                                selection.type = allSelected ? 'playlist-sc' : '';
+                                updateRowUI(rowData.rowDiv, rowData.videoFile.name, project.path);
+                            });
+                        };
+                        groupHeader.appendChild(selectAllBtn);
+                    }
+
                     if (isNewOnly) {
                         const headerDateInfo = document.createElement('span');
                         headerDateInfo.className = 'date-info';
@@ -5508,25 +5598,6 @@
                         dateInfo.textContent = `Created: ${new Date(videoFile.lastModified).toLocaleString()}`;
                         rowDiv.appendChild(dateInfo);
 
-                        let multiplierInput;
-                        if (currentMode === 'playlist-root' || currentMode === 'update-playlist-root') {
-                            const navContainer = document.createElement('div');
-                            navContainer.className = 'playlist-nav-container';
-                            rowDiv.appendChild(navContainer);
-                            multiplierInput = document.createElement('input');
-                            multiplierInput.type = 'number';
-                            multiplierInput.className = 'multiplier-input';
-                            multiplierInput.value = 1;
-                            multiplierInput.min = 1;
-                            multiplierInput.title = 'Add to playlist multiple times';
-                            navContainer.appendChild(multiplierInput);
-                            multiplierInput.addEventListener('change', () => {
-                                const key = project.path + '|' + videoFile.name;
-                                const existingSelection = shortcutSelections.get(key);
-                                if (existingSelection) existingSelection.multiplier = parseInt(multiplierInput.value) || 1;
-                            });
-                            multiplierInput.addEventListener('click', (e) => e.stopPropagation());
-                        }
 
                         const thumbnailsContainer = document.createElement('div');
                         thumbnailsContainer.className = 'thumbnails-container';
@@ -5989,12 +6060,8 @@
                             const relativePathParts = await g_rootHandle.resolve(folder.handle);
                             if (relativePathParts) {
                                 folder.path = relativePathParts.join('\\');
-                            } else {
-                                folder.path = "";
                             }
-                        } catch (e) {
-                            folder.path = "";
-                        }
+                        } catch (e) {}
                     }
                 }
 
@@ -6103,31 +6170,6 @@
 
                     rowDiv.appendChild(createRowActionBar('Playlist Item', project.path, candidateVideos[currentIndex].subfolder, rowDiv, project.name));
 
-                    const navContainer = document.createElement('div');
-                    navContainer.className = 'playlist-nav-container';
-                    rowDiv.appendChild(navContainer);
-
-                    const prevBtn = document.createElement('button');
-                    prevBtn.className = 'playlist-nav-btn';
-                    prevBtn.textContent = '◀';
-                    navContainer.appendChild(prevBtn);
-
-                    const nextBtn = document.createElement('button');
-                    nextBtn.className = 'playlist-nav-btn';
-                    nextBtn.textContent = '▶';
-                    navContainer.appendChild(nextBtn);
-
-                    const multiplierInput = document.createElement('input');
-                    multiplierInput.type = 'number';
-                    multiplierInput.className = 'multiplier-input';
-                    multiplierInput.value = 1;
-                    multiplierInput.min = 1;
-                    multiplierInput.title = 'Add to playlist multiple times';
-                    navContainer.appendChild(multiplierInput);
-
-                    if (candidateVideos.length <= 1) {
-                        navContainer.style.display = 'none';
-                    }
 
                     const dateInfo = document.createElement('div');
                     dateInfo.className = 'date-info';
@@ -6216,32 +6258,32 @@
 
                     await updateDisplayedVideo(currentIndex);
 
-                    prevBtn.onclick = (e) => {
-                        e.stopPropagation();
-                        currentIndex = (currentIndex - 1 + candidateVideos.length) % candidateVideos.length;
-                        updateDisplayedVideo(currentIndex);
-                    };
+                    const actionBar = rowDiv.querySelector('.row-action-bar');
+                    if (actionBar) {
+                        const prevBtn = actionBar.querySelectorAll('.multiplier-container button')[0];
+                        const nextBtn = actionBar.querySelectorAll('.multiplier-container button')[1];
 
-                    nextBtn.onclick = (e) => {
-                        e.stopPropagation();
-                        currentIndex = (currentIndex + 1) % candidateVideos.length;
-                        updateDisplayedVideo(currentIndex);
-                    };
+                        if (prevBtn && nextBtn) {
+                            prevBtn.onclick = (e) => {
+                                e.stopPropagation();
+                                currentIndex = (currentIndex - 1 + candidateVideos.length) % candidateVideos.length;
+                                updateDisplayedVideo(currentIndex);
+                            };
 
+                            nextBtn.onclick = (e) => {
+                                e.stopPropagation();
+                                currentIndex = (currentIndex + 1) % candidateVideos.length;
+                                updateDisplayedVideo(currentIndex);
+                            };
+
+                            if (candidateVideos.length <= 1) {
+                                prevBtn.style.display = 'none';
+                                nextBtn.style.display = 'none';
+                            }
+                        }
+                    }
 
                     updateRowUI(rowDiv, 'Playlist Item', project.path);
-
-                    multiplierInput.addEventListener('change', () => {
-                        const key = project.path + '|Playlist Item';
-                        const existingSelection = shortcutSelections.get(key);
-                        if (existingSelection) {
-                            existingSelection.multiplier = parseInt(multiplierInput.value) || 1;
-                        }
-                    });
-
-                    multiplierInput.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                    });
 
                 } catch (e) {
                     console.warn(`Could not process project '${project.name}' for playlist mode:`, e);
@@ -6268,7 +6310,7 @@
                 'if (\$PSScriptRoot) { \$BaseDir = \$PSScriptRoot }',
                 'else { \$BaseDir = Split-Path -Parent -Path \$MyInvocation.MyCommand.Definition -ErrorAction SilentlyContinue }',
                 'if (-not \$BaseDir) { \$BaseDir = Get-Location }',
-                '\$BaseDir = [System.IO.Path]::GetFullPath(\$BaseDir)',
+                '\$BaseDir = [System.IO.Path]::GetFullPath((\$BaseDir))',
                 '\$script:playlistContent = New-Object System.Collections.Generic.List[string]',
                 '\$script:playlistContent.Add("#EXTM3U")',
                 '\$script:addedTargets = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)',
@@ -6285,12 +6327,12 @@
                 '    if (-not \$searchDir) { break }',
                 '}',
                 'if (-not \$rootScFolder) { \$rootScFolder = Join-Path -Path \$BaseDir -ChildPath "sc" }',
-                '\$rootScFolder = [System.IO.Path]::GetFullPath(\$rootScFolder)',
+                '\$rootScFolder = [System.IO.Path]::GetFullPath((\$rootScFolder))',
                 '',
                 'function Add-PlaylistEntry {',
                 '    param([string]$path, [string]\$rotation, [int]\$multiplier, [string]\$rotationKey)',
                 '    if ([System.IO.Path]::IsPathRooted($path)) {',
-                '        \$fullPath = [System.IO.Path]::GetFullPath($path)',
+                '        \$fullPath = [System.IO.Path]::GetFullPath(($path))',
                 '    } else {',
                 '        \$fullPath = [System.IO.Path]::GetFullPath((Join-Path -Path \$BaseDir -ChildPath $path))',
                 '    }',
@@ -6366,7 +6408,7 @@
                     '        if (-not [System.IO.Path]::IsPathRooted(\$target)) {',
                     '            \$target = [System.IO.Path]::GetFullPath((Join-Path -Path (Split-Path -Parent $path) -ChildPath \$target))',
                     '        } else {',
-                    '            \$target = [System.IO.Path]::GetFullPath(\$target)',
+                    '            \$target = [System.IO.Path]::GetFullPath((\$target))',
                     '        }',
                     '        return \$target',
                     '    } catch {',
@@ -6463,7 +6505,7 @@
                     if (sel.projectPath) {
                         projectPathVar = `Join-Path -Path \"$BaseDir\" -ChildPath '${escapedProjectPath}'`;
                     }
-                    scriptLines.push(`\$subfolderSelections['' + [System.IO.Path]::GetFullPath((${projectPathVar}))] = ${multiplier}`);
+                    scriptLines.push(`\$subfolderSelections['' + [System.IO.Path]::GetFullPath(((${projectPathVar})))] = ${multiplier}`);
                 });
 
                 scriptLines.push('foreach ($projPath in \$subfolderSelections.Keys) {');
